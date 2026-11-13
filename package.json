@@ -1,7 +1,7 @@
 {
-  "name": "dempo-learn",
+  "name": "pathwise-hr-lms",
   "version": "1.0.0",
-  "description": "College LMS with bulk roster import, exam-grade auto-save with a server-side timer, and a weighted internal/external gradebook.",
+  "description": "HR training LMS: employee import with automatic assignment, courses with quizzes and certificates, and a compliance dashboard.",
   "private": true,
   "main": "server.js",
   "engines": {
@@ -11,7 +11,7 @@
     "start": "node --disable-warning=ExperimentalWarning server.js",
     "dev": "node --disable-warning=ExperimentalWarning --watch server.js",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
-    "reset": "node -e \"require('fs').rmSync('data',{recursive:true,force:true});console.log('Database deleted. Run npm start to re-seed.')\"",
+    "reset": "node -e \"require('fs').rmSync('data',{recursive:true,force:true});console.log('Database deleted. Run npm start to re-create the demo company.')\"",
     "sample": "node scripts/make-sample-csv.js"
   },
   "license": "MIT"

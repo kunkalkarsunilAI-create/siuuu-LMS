@@ -25,10 +25,10 @@ const good = (sub = 'user_1', extra = {}) => sign({ sub, iss: `https://${FAPI}`,
 
 // Fake Clerk: JWKS + Backend API users.
 const USERS = {
-  user_1: { email: 'priya.naik@dempo.edu', verified: true, first: 'Priya', last: 'Naik' },
+  user_1: { email: 'rahul.desai@mandovi.example', verified: true, first: 'Priya', last: 'Naik' },
   user_2: { email: 'stranger@gmail.com', verified: true, first: 'Some', last: 'One' },
-  user_3: { email: 'unverified@dempo.edu', verified: false },
-  user_4: { email: 'principal@dempo.edu', verified: true, first: 'The', last: 'Principal' },
+  user_3: { email: 'unverified@mandovi.example', verified: false },
+  user_4: { email: 'principal@mandovi.example', verified: true, first: 'The', last: 'Principal' },
 };
 const calls = [];
 async function fakeFetch(url, opts = {}) {
@@ -101,11 +101,11 @@ test('auth/clerk: a roster email signs in with its own role; config exposes only
     assert.equal(cfg.data.passwordLogin, false, 'password sign-in is off once Clerk is set up (outside demo mode)');
     const r = await app.post('/api/auth/clerk', { token: good('user_1') });
     assert.equal(r.status, 200);
-    assert.equal(r.data.user.role, 'faculty');
+    assert.equal(r.data.user.role, 'manager');
     const me = await app.get('/api/me', r.cookie);
-    assert.equal(me.data.user.email, 'priya.naik@dempo.edu');
+    assert.equal(me.data.user.email, 'rahul.desai@mandovi.example');
     // Password login is refused when Clerk is the sign-in method.
-    const pw = await app.post('/api/login', { email: 'admin@dempo.edu', password: 'admin123' });
+    const pw = await app.post('/api/login', { email: 'neha.kerkar@mandovi.example', password: 'hr12345' });
     assert.equal(pw.status, 403);
   } finally { app.server.close(); }
 });
@@ -113,20 +113,20 @@ test('auth/clerk: a roster email signs in with its own role; config exposes only
 test('auth/clerk: unknown email is refused (production) or offered demo roles (demo mode)', async () => {
   const prod = await startApp({});
   try {
-    const r = await prod.post('/api/auth/clerk', { token: good('user_2'), demoRole: 'admin' });
+    const r = await prod.post('/api/auth/clerk', { token: good('user_2'), demoRole: 'hr_admin' });
     assert.equal(r.status, 403);
     assert.equal(r.data.code, 'not_on_roster');
     assert.deepEqual(r.data.demoRoles, []);
-    assert.match(r.data.error, /stranger@gmail.com.*isn't on the college roster/);
+    assert.match(r.data.error, /stranger@gmail.com.*isn't in the employee list/);
   } finally { prod.server.close(); }
 
   const demo = await startApp({ demoMode: true });
   try {
     const first = await demo.post('/api/auth/clerk', { token: good('user_2') });
-    assert.deepEqual(first.data.demoRoles, ['student', 'faculty', 'admin']);
-    const asStudent = await demo.post('/api/auth/clerk', { token: good('user_2'), demoRole: 'student' });
+    assert.deepEqual(first.data.demoRoles, ['employee', 'manager', 'hr_admin']);
+    const asStudent = await demo.post('/api/auth/clerk', { token: good('user_2'), demoRole: 'employee' });
     assert.equal(asStudent.status, 200);
-    assert.equal(asStudent.data.user.email, 'aisha.dsouza@dempo.edu');
+    assert.equal(asStudent.data.user.email, 'arjun.naik@mandovi.example');
     assert.equal(asStudent.data.asDemo, true);
     const bogus = await demo.post('/api/auth/clerk', { token: good('user_2'), demoRole: 'superuser' });
     assert.equal(bogus.status, 403);
@@ -134,17 +134,17 @@ test('auth/clerk: unknown email is refused (production) or offered demo roles (d
 });
 
 test('auth/clerk: unverified email refused; ADMIN_EMAILS bootstraps an exam-office account', async () => {
-  const app = await startApp({ adminEmails: ['Principal@dempo.edu'] });
+  const app = await startApp({ adminEmails: ['Principal@mandovi.example'] });
   try {
     const unv = await app.post('/api/auth/clerk', { token: good('user_3') });
     assert.equal(unv.status, 403);
-    assert.match(unv.data.error, /Verify unverified@dempo.edu/);
+    assert.match(unv.data.error, /Verify unverified@mandovi.example/);
     const adm = await app.post('/api/auth/clerk', { token: good('user_4') });
     assert.equal(adm.status, 200);
-    assert.equal(adm.data.user.role, 'admin');
+    assert.equal(adm.data.user.role, 'hr_admin');
     assert.equal(adm.data.user.name, 'The Principal');
     // That account has no password; password sign-in for it always fails.
-    const row = app.db.prepare("SELECT password_hash FROM users WHERE email = 'principal@dempo.edu'").get();
+    const row = app.db.prepare("SELECT password_hash FROM users WHERE email = 'principal@mandovi.example'").get();
     assert.equal(row.password_hash, 'clerk$only');
     const bad = await app.post('/api/auth/clerk', { token: 'garbage' });
     assert.equal(bad.status, 401);

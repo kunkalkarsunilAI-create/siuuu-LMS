@@ -1,168 +1,157 @@
-# Dempo Learn
+# Pathwise — HR training & compliance LMS
 
-A learning platform for a college of about 2,000 students. It does three things Google Classroom does not, and all three work end to end:
+Pathwise helps a company's HR team make sure every employee completes the training they're required to. It covers onboarding, yearly compliance courses such as POSH and information security, and skills courses. HR can prove who is compliant at any moment.
 
-1. **Bulk roster import.** Bring the whole semester's students in from one CSV file, with a preview of what will happen to every row. Rows with mistakes are reported and left out, not silently dropped or merged.
-2. **Exams that survive bad WiFi.** The server keeps the clock, answers auto-save every few seconds, work done offline is kept on the device and sent on reconnect, and a student who never comes back is submitted automatically at the deadline.
-3. **A real academic gradebook.** Internal and external components with weights, the external-minimum pass rule, a 10-point letter grade, and CSV export for the university.
+Three features work end to end:
 
-Each one traces back to a reason a college would pay instead of using a free tool: **exam-grade reliability**, **an academic gradebook**, and **ownership of the college's own data** (it runs on the college's own server with a single SQLite file).
+1. **Employee import and automatic assignment.** HR uploads the staff list exported from their HR or payroll system. New joiners are added, department moves and new managers are updated, and leavers are switched off. Training rules ("everyone in Sales must complete DPDP-01 within 21 days") then assign courses with deadlines automatically.
+2. **Courses, quiz and certificate.** Employees work through short lessons, then take a quiz with a pass mark. Answers autosave and survive a dropped connection or a page reload. Passing issues a certificate with a unique code that anyone can verify. Yearly courses expire and must be renewed.
+3. **Compliance dashboard.** HR sees who is compliant, overdue, expired or expiring soon, by course and by department, and can drill into a filtered list and export it to CSV. Managers see the same, scoped to their own team.
+
+Sign-in works with **Clerk** (work email or Google), with passwords as a fallback.
 
 ---
 
 ## Run it
 
-You need **Node.js 22.13 or newer** ([nodejs.org](https://nodejs.org), pick the LTS). Nothing else, and **no `npm install`**: the project has zero dependencies.
+You need **Node.js 22.13 or newer**. There's **nothing to install**: no `npm install`, zero dependencies (it uses Node's built-in SQLite).
 
 ```bash
-npm start            # or: node server.js
+npm start
 ```
 
-Open <http://localhost:3000>. On first run it creates a demo database in `data/dempo.db`.
+Open <http://localhost:3000>. The first run creates a demo company, **Mandovi Systems** (fictional; it uses reserved `.example` email addresses).
 
 | Role | Email | Password |
 |---|---|---|
-| Exam office (admin) | `admin@dempo.edu` | `admin123` |
-| Faculty (teaches CS201, CS202) | `priya.naik@dempo.edu` | `faculty123` |
-| Faculty (teaches MA201, EC201) | `rahul.kamat@dempo.edu` | `faculty123` |
-| Student | `aisha.dsouza@dempo.edu` | `23CS001` |
+| HR admin | `neha.kerkar@mandovi.example` | `hr12345` |
+| Manager (Engineering, 4 reports) | `rahul.desai@mandovi.example` | `manager123` |
+| Employee (new joiner) | `arjun.naik@mandovi.example` | `MS-101` |
 
-The login page also has one-click buttons for these.
+The login page has one-click buttons for all three.
 
 | Command | What it does |
 |---|---|
-| `npm start` | Start the server on port 3000 (`PORT=4000 npm start` to change it) |
-| `npm run dev` | Start and restart automatically when files change |
-| `npm test` | Run the 33 automated tests (in-memory database, about 2 seconds) |
-| `npm run reset` | Delete the database; the next start re-creates the demo data |
-| `npm run sample` | Regenerate the sample CSV files in `public/samples/` |
+| `npm start` | Start on port 3000 (`PORT=4000 npm start` to change) |
+| `npm test` | Run the 20 automated tests (about 3 seconds) |
+| `npm run reset` | Delete the database; the next start re-creates the demo company |
+| `npm run sample` | Regenerate the sample CSV files |
 
-**If it fails to start:** `Dempo Learn needs Node.js 22.13 or newer` means exactly that. Check with `node -v`. The app uses the built-in `node:sqlite` module, which older versions don't have. A warning about `ExperimentalWarning: SQLite` is harmless; `npm start` hides it.
+## Five-minute demo
 
-## Deploy to Vercel (demo mode)
+1. **HR.** Sign in as Neha. You land on **Compliance**: 80% compliant, with two overdue and two expired certificates. Click "overdue" to see exactly who. Click a course or department row to filter.
+2. **Import.** Go to **Import** and upload *Sample with mistakes* (linked on the page). The preview shows 4 new people, a department move, a leaver and 5 rows with mistakes, each with the reason. Apply it: 14 courses are assigned to the new joiners automatically.
+3. **Rules.** Go to **Courses** → *Code review that helps* → add a rule "Engineering, 30 days". Everyone in Engineering who doesn't have it is assigned it immediately.
+4. **Employee.** Sign out and sign in as Arjun, a new joiner with four courses to do. Open *Information security essentials*, read the three lessons, start the quiz. Answer one question, press **Simulate a WiFi drop**, answer two more, then **reload the page**. Your answers are still there, and they sync when you reconnect. Submit, pass, and open the certificate.
+5. **Verify.** Sign out, click **Check a certificate** on the login page, and enter the code. Anyone can do this without an account.
+6. **Manager.** Sign in as Rahul: **My team** and **Compliance** show only his reports. He can assign courses to them and to nobody else.
 
-Vercel detects `server.js` and runs it with no configuration file.
+## How it behaves
 
-1. On [vercel.com](https://vercel.com) → **Add New… → Project** → import this GitHub repo. Leave every build setting at its default.
-2. Under **Environment Variables**, add `SESSION_SECRET` with a long random value (any 40+ random characters). This keeps people signed in when Vercel moves them between copies of the app. **Never commit it to the repo.**
-3. Click **Deploy**.
+### Training status (`src/training.js`)
 
-**What "demo mode" means:** Vercel has no permanent disk, so the database lives in `/tmp` and is recreated with the demo data whenever Vercel starts a fresh copy of the app (after a few minutes idle, on each redeploy, or under load). The demo accounts and sample courses are always there; anything you add may disappear. The login page says so. For real use with saved data, run it on a normal server (Render, Railway, a college machine) where `data/dempo.db` persists, or move the database to hosted Postgres.
+Each person has exactly one status per course, checked in this order:
 
-## Sign-in with Clerk
-
-[Clerk](https://clerk.com) handles sign-in (email codes, Google, and so on). **Dempo Learn still decides the role**: after Clerk proves who you are, the server matches your verified email against the users table. Students come from the roster import, teachers from the seed data, and the exam office from `ADMIN_EMAILS`.
-
-Set these environment variables (in Vercel: Project → Settings → Environment Variables, then redeploy):
-
-| Variable | Where to find it | Secret? |
+| Status | Meaning | Counts as compliant |
 |---|---|---|
-| `CLERK_PUBLISHABLE_KEY` | Clerk Dashboard → API keys (`pk_test_…`) | No |
-| `CLERK_SECRET_KEY` | Clerk Dashboard → API keys (`sk_test_…`) | **Yes, never commit it or paste it anywhere else** |
-| `ADMIN_EMAILS` | Comma-separated emails that become exam-office accounts on first sign-in | No |
-| `CLERK_AUTHORIZED_PARTIES` | Optional. Your site URL, e.g. `https://siuuu-lms.vercel.app`; rejects tokens made on other sites | No |
-| `CLERK_JWT_KEY` | Optional. Clerk's PEM public key, to verify without fetching Clerk's key list | No |
+| Completed | Holds a valid certificate, expiring in more than 30 days (or never) | ✓ |
+| Expiring soon | Valid certificate that expires within 30 days, so they can renew early | ✓ |
+| Expired | Had a certificate and it has lapsed; must retake. The deadline becomes the expiry date | ✗ |
+| Overdue | Never certified and the deadline has passed | ✗ |
+| In progress | Started lessons or the quiz | ✗ |
+| Not started | — | ✗ |
 
-How it behaves:
-
-- **Email on the roster:** signed in with that account's role.
-- **Email not on the roster:** told so plainly. On a demo site they can instead look around as the demo student, teacher or exam office.
-- **Unverified email in Clerk:** refused until verified.
-- **Password sign-in:** off once Clerk is set up, except on a demo site (`DEMO_MODE`), or if you set `ALLOW_PASSWORD_LOGIN=1`. If the Clerk keys are wrong, the site keeps password sign-in on and the login page says what's wrong, so nobody is locked out.
-- **Sign out:** ends both the Dempo Learn session and the Clerk session.
-
-Under the hood (`src/clerk.js`, no dependencies): the browser sends Clerk's session token to `POST /api/auth/clerk`. The server checks its RS256 signature against Clerk's public keys, its expiry and its issuer, then asks Clerk's Backend API for the verified email. Tests in `test/clerk.test.js` use a fake Clerk with real keys: forged, expired, wrong-app and wrong-site tokens are all rejected.
-
-## A five-minute demo
-
-1. **Roster.** Sign in as the exam office → *Import students* → *Sample with mistakes*. Upload it. The preview shows 14 rows: new students, existing students being enrolled in another course, duplicates skipped, and 8 mistakes, each with the line number and the reason. Import, then download *Rows to fix*. Now upload *Sample with 2,000 students*; it imports in under a second.
-2. **Exam.** Sign in as Aisha → *Quiz 1* → Start. Answer a question and watch the badge change to *Saved*. Press **Simulate WiFi drop** at the bottom, answer two more questions, then **reload the page**. The answers are still there, and the timer did not reset. Reconnect and they sync. Submit.
-3. **Gradebook.** Sign in as Dr. Priya Naik → CS201 → *Gradebook*. Aisha's quiz score arrived on its own (marked *from online exam*). Type a mark above a column's maximum and it's flagged. Fatima has a passing total (43.6) but gets **F** because her external score is below 40%. Export CSV.
-4. **Marking.** Still as faculty → *Exams* → *Practice test* → Mark Sneha's written answer.
-
-## How each feature behaves
-
-### 1. Bulk roster import — `src/roster.js`
+### Employee import (`src/employees.js`)
 
 | Rule | Behaviour |
 |---|---|
-| Required columns | `roll_no`, `name`, `email`, `course_code`. Optional: `department`. Any order, any case; common variants like "Roll No" and "Email Address" are understood. Other columns are ignored and listed. |
-| One row = | one student in one course. Repeat the student for more courses. |
-| Mode | **Partial.** Valid rows go in (one transaction); rows with mistakes are left out and listed. Never all-or-nothing, because one typo in 2,000 rows shouldn't block a semester. |
-| Preview | Always shown first and writes nothing. |
-| Exact duplicate row | Skipped. |
-| Same email, different roll no or name in one file | Error on the later row, naming the earlier line. |
-| Email already registered with the same roll no | Reused; enrolled in the new course. Name is **not** overwritten. |
-| Email or roll no belongs to someone else | Error. Never a silent merge. |
-| Email belongs to faculty or admin | Error. |
-| Already enrolled | Skipped. Uploading the same file twice is safe. |
-| Malformed row | Bad email, empty field, unknown course, wrong column count (stray comma), bad roll format: error with line number. |
-| Limits | 5,000 rows, 2 MB. Handles Excel's UTF-8 BOM, quoted fields and CRLF. |
-| Afterwards | A summary, a filterable table, an import history, a full CSV report, and a *Rows to fix* CSV that can be corrected and re-uploaded. |
-| First password | The student's roll number. It is hashed on first sign-in, because hashing 2,000 passwords during the import took over 20 seconds. |
+| Required columns | `employee_id`, `name`, `email`, `department`. Optional: `job_title`, `manager_email`, `joined_on`, `role`, `status`. Any order, and common HR-system names like "Emp Code", "Reporting Manager" and "Date of Joining" are recognised. |
+| Dates | `YYYY-MM-DD`, `DD/MM/YYYY` (day first, as in India), or `1-Apr-2026`. Impossible dates like 31/02 are rejected. |
+| Mode | **Partial.** Valid rows are applied in one transaction; rows with mistakes are listed with the line number and reason. *Rows to fix* downloads just those rows. |
+| Existing person (same email and ID) | Updated: department, title, manager. Unchanged rows are left alone, so uploading the same file twice changes nothing. |
+| `status` = left | Switched off: can't sign in, drops out of compliance, and their reports lose them as manager. |
+| Managers | Must be in the file or already in the system, and still employed. Anyone who manages someone becomes a manager. Reporting loops (A → B → A) are rejected. |
+| Conflicts | An email or employee ID that belongs to someone else, a duplicate row, or an HR admin account → error, never a silent merge. |
+| After import | Training rules run for new and moved people. |
+| First password | The employee ID, hashed on first sign-in. With Clerk, people just use their work email. |
 
-### 2. Exam robustness — `src/exams.js`, exam runner in `public/app.js`
+### Rules and assignments
 
-- **Server-side timer.** Pressing Start records `started_at` on the server and fixes `deadline = min(start + duration, exam closes_at)`. Reloading, switching device or changing the laptop's clock changes nothing. The page measures the difference between its clock and the server's and corrects for it.
-- **Auto-save.** Saves 0.15s after a choice and 1.2s after typing stops. Each save carries an increasing sequence number, and the server keeps only the newest, so a queue flushed late after reconnecting can't overwrite newer answers.
-- **WiFi drop.** Answers are written to the browser's storage on every change. Offline, the student keeps working and sees *Offline · kept on device*. Retries back off from 2s to 15s and fire immediately when the browser reports it is online again. Reloading while offline reopens the exam from the cached copy.
-- **Time up.** At zero the page locks and submits. Saves arriving up to 15 seconds late are accepted (requests in flight). After that, the server refuses them and finalises the attempt with the last answers it received, stamped at the deadline, even if the student never reconnects.
-- **Marking.** Multiple-choice questions are marked on submit. Short answers wait for faculty. If the exam is linked to a gradebook column, the score is scaled to that column's maximum and written in automatically.
-- The answer key is never sent to students.
+- A rule says "*department* (or everyone) must complete *course* within *N* days". It applies to current staff and to everyone imported later.
+- **Deadline** = the later of (now, joining date) + N days. Existing deadlines are never moved.
+- HR and managers can also assign a course by hand to chosen people. Managers can only assign to their own reports.
 
-### 3. Gradebook — `src/grades.js`
+### Quiz and certificates
 
-```
-contribution = marks / max_marks × weight
-internal     = Σ internal contributions          total = internal + external  (out of 100)
-```
+- The quiz unlocks after the last lesson. The pass mark, attempts per cycle and certificate validity are set per course.
+- Answers **autosave**. Every save carries a sequence number, so a late save from a reconnecting device never overwrites newer answers. Answers are also kept on the device, so a reload or a WiFi drop loses nothing.
+- After a fail, the review shows which answers were wrong but **not the right answers**, so a retake still tests something. After a pass, it shows everything.
+- Running out of attempts: HR can allow another go from the person's page.
+- Certificate codes look like `PW-7KQM-3XRT`; easily confused characters (0/O, 1/I/L) are left out. The public check shows only name, course and dates. A 12-month certificate issued on 31 January expires on 28/29 February, not 3 March.
 
-- Weights must total exactly 100. Saving is refused otherwise, and the editor shows the running sum.
-- **Pass** = total ≥ 40 **and** external ≥ the course's minimum external % (default 40%). Below the external minimum is F whatever the total.
-- 10-point scale: O ≥ 90 (10), A+ ≥ 80 (9), A ≥ 70 (8), B+ ≥ 60 (7), B ≥ 50 (6), C ≥ 45 (5), P ≥ 40 (4), F (0).
-- A student with any mark missing shows **Incomplete**, not a misleading grade.
-- Faculty see the grid; totals update as they type, Enter moves down a row, and out-of-range marks are flagged in red with a text message. Students see only their own marks, with what each component contributed and what's still missing.
-- CSV export (Excel-safe UTF-8, formula injection neutralised).
+### Roles
 
-### Roles and permissions
+Checked on the server for every request:
 
-Checked on the server for every request, not just hidden in the interface. Students see only their enrolled courses and their own marks. Faculty manage only courses they teach. Asking for someone else's course returns *not found*, so course IDs don't leak. Tests in `test/api.test.js` cover each of these.
+| | Employee | Manager | HR admin |
+|---|---|---|---|
+| Own training | ✓ | ✓ | ✓ |
+| See people and compliance | – | direct reports only | everyone |
+| Assign courses by hand | – | to direct reports | to anyone |
+| Create and edit courses, rules, import | – | – | ✓ |
+
+## Deploy to Vercel
+
+1. Create a project on [vercel.com](https://vercel.com) from this GitHub repo. Leave every build setting at its default; Vercel detects `server.js`.
+2. Optional: add Clerk sign-in (below).
+3. Deploy.
+
+On Vercel the app runs in **demo mode**. Vercel has no permanent disk, so the database lives in `/tmp` and is re-created with the demo company when Vercel starts a fresh copy of the app. The login page says so. For real use, run it on a server with a persistent disk (or a college or company machine), where `data/pathwise.db` persists.
+
+## Sign-in with Clerk
+
+Set these environment variables (in Vercel: Project → Settings → Environment Variables → **Project** tab, then redeploy):
+
+| Variable | Value | Type |
+|---|---|---|
+| `CLERK_PUBLISHABLE_KEY` | `pk_test_…` from the Clerk dashboard → API keys | Config |
+| `CLERK_SECRET_KEY` | `sk_test_…` (Clerk shows it once, when you create it) | **Secret, never commit it** |
+| `ADMIN_EMAILS` | Your email; becomes an HR admin on first sign-in | Config |
+| `CLERK_AUTHORIZED_PARTIES` | Optional: your site URL, to reject tokens made elsewhere | Config |
+
+Clerk proves who someone is; Pathwise decides their role from the employee list. An email that isn't in the list is told so plainly (on a demo site they can look around as a demo employee, manager or HR admin instead). People who have left can't sign in. With Clerk set up, password sign-in is switched off, except on demo sites or with `ALLOW_PASSWORD_LOGIN=1`.
 
 ## Project layout
 
 ```
-server.js            entry point: checks Node version, seeds demo data, starts HTTP
-src/app.js           HTTP routing and every API endpoint, with permission checks
-src/db.js            SQLite schema (node:sqlite)
-src/auth.js          scrypt password hashing, signed-cookie sessions (HttpOnly)
-src/clerk.js         Clerk sign-in: token verification + Backend API lookup
-src/roster.js        Feature 1: CSV validation + import
-src/exams.js         Feature 2: timer, saves, finalising, auto-marking
-src/grades.js        Feature 3: weighted totals and grades
-src/csv.js           CSV parser/writer
-src/seed.js          demo data
+server.js            entry point: Node version check, Clerk config, demo data, HTTP
+src/app.js           all API routes and permission checks
+src/http.js          tiny HTTP framework (routing, JSON, cookies, static files)
+src/db.js            SQLite schema
+src/training.js      status rules, assignment rules, scoring, certificates
+src/employees.js     Feature 1: CSV import
+src/auth.js          password hashing, signed-cookie sessions
+src/clerk.js         Clerk token verification (no dependencies)
+src/csv.js           CSV parser/writer (Excel-safe, formula-injection safe)
+src/seed.js          demo company and course content
 public/              the web app: index.html, app.js, styles.css, sample CSVs
-test/                node:test suites (unit + end-to-end API with a fake clock)
+test/                20 tests: features, roles, Clerk (against a fake Clerk with real keys)
 ```
 
 ## Design
 
-Colours, type and spacing are tokens at the top of `public/styles.css`; change them there, not per screen.
+Colours, type and spacing are tokens at the top of `public/styles.css`.
 
-- **Palette:** deep backwater green for structure and actions, cool off-white for reading, and saffron used **only for time** (the exam timer strip and deadlines), so the eye learns that saffron = clock. Every text/background pair meets WCAG AA. Body text is 14.8:1, muted text 6.2:1, and white on primary buttons 8.4:1. Status is never colour alone: errors carry text, invalid inputs get a written reason, and grades are letters.
-- **Type:** the device's own system font. Nothing to download on weak campus WiFi, and it renders well on cheap Android phones. Tabular numbers keep marks aligned.
-- **Phones:** checked at 360px wide. Tables turn into labelled cards; the exam timer collapses to one row so the questions keep the screen.
-- **Keyboard:** skip link, visible focus ring on everything, focus kept inside dialogs, screen-reader announcements at 5 and 1 minutes left and when the connection drops or returns.
+- **Palette:** deep aubergine for structure and actions, a cool grey-white for reading. Each training status has its own colour and **always** a text label too, so colour never carries meaning alone. Every text/background pair meets WCAG AA. Body text is 15.7:1, secondary text 6.4:1, and the status chips and bar segments are all at least 5.4:1.
+- **Type:** the device's system font, so nothing downloads on a slow connection, with tabular numbers. The **certificate** is the one ceremonial page: a classic serif inside a double-ruled frame, printable as A4 landscape.
+- **Phones:** checked at 360px. Tables become labelled cards, and the course player stacks the lesson list above the lesson.
+- **Keyboard:** skip link, visible focus everywhere, focus kept inside dialogs, screen-reader announcements when the connection drops or returns during a quiz.
 
-## Known limits (deliberately not built)
+## Known limits
 
-- No password change or reset screen yet; students keep their roll number as the password. Before real use, add password change, or invite links sent by email.
-- No course or faculty management screens; courses come from the seed data (`src/seed.js`) or the database.
-- No anti-cheating controls (tab-switch detection, lockdown browser). The server timer stops time-cheating, not open-book cheating.
-- Content delivery, assignments with file uploads and announcements are not built. They overlap with what Google Classroom already does for free.
-- Single server and a single SQLite file. That is fine for one college of 2,000 (writes are small and serialised), but back up `data/dempo.db` daily. For multiple colleges, move to Postgres.
-- The *Simulate WiFi drop* button is a demo tool. Remove it from `viewTake` in `public/app.js` before a real exam.
-
-## Ground rules followed
-
-No `.env`, keys or secrets exist or are needed. `.gitignore` excludes `data/` (the database) and `.env*`.
+- No email reminders. The compliance list and its CSV export are how HR chases people today; an email integration is the natural next step.
+- No password reset screen. With Clerk, that's handled by Clerk.
+- Lessons are text plus an optional video link; no file uploads.
+- Courses can be edited but not deleted, to protect certificate history.
+- The **Simulate a WiFi drop** button on the quiz page is a demo tool. Remove it before real use (`viewQuiz` in `public/app.js`).
+- The company name on certificates ("Mandovi Systems") is set in `public/app.js`, in `viewCertificate`.

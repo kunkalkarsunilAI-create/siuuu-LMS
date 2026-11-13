@@ -9,16 +9,16 @@ function hashPassword(password) {
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
 }
 
-// Marker stored for imported students who have never signed in: their password is their roll number.
-const INITIAL_ROLL_NO = 'initial$roll_no';
+// Marker stored for imported employees who have never signed in: their first password is their employee ID.
+const INITIAL_EMPLOYEE_ID = 'initial$employee_id';
 // Marker for accounts created through Clerk sign-in: they have no password here.
 const CLERK_ONLY = 'clerk$only';
 
 // Checks a password for a user row. Upgrades the first-login marker to a real hash on success.
 function checkLogin(db, user, password) {
-  if (user.password_hash === INITIAL_ROLL_NO) {
-    const ok = !!user.roll_no && String(password).trim().toUpperCase() === user.roll_no.toUpperCase();
-    if (ok) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(user.roll_no.toUpperCase()), user.id);
+  if (user.password_hash === INITIAL_EMPLOYEE_ID) {
+    const ok = !!user.employee_id && String(password).trim().toUpperCase() === user.employee_id.toUpperCase();
+    if (ok) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(user.employee_id.toUpperCase()), user.id);
     return ok;
   }
   return verifyPassword(password, user.password_hash);
@@ -62,14 +62,14 @@ function userFromToken(db, token, now = Date.now()) {
   if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) return null;
   const [id, expires, ...emailParts] = Buffer.from(payload, 'base64url').toString().split('.');
   if (!(Number(expires) > now)) return null;
-  const row = db.prepare('SELECT id, email, name, role, roll_no, department FROM users WHERE id = ?').get(Number(id));
+  const row = db.prepare('SELECT id, email, name, role, employee_id, department, job_title, manager_id, active FROM users WHERE id = ?').get(Number(id));
   // The email check stops a token from one copy of the app matching a different person
   // who happens to have the same id in another copy's database.
-  return row && row.email === emailParts.join('.') ? { ...row } : null;
+  return row && row.active && row.email === emailParts.join('.') ? { ...row } : null; // people who have left can't sign in
 }
 
 // Signing out clears the cookie (done by the caller). Signed tokens can't be revoked
 // server-side; they expire after SESSION_TTL_MS.
 function destroySession() {}
 
-module.exports = { INITIAL_ROLL_NO, CLERK_ONLY,checkLogin, hashPassword, verifyPassword,createSession, userFromToken, destroySession };
+module.exports = { INITIAL_EMPLOYEE_ID, CLERK_ONLY,checkLogin, hashPassword, verifyPassword,createSession, userFromToken, destroySession };

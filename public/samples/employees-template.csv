@@ -1,0 +1,2 @@
+employee_id,name,email,department,job_title,manager_email,joined_on,status
+MS-601,Sneha Kamat,sneha.kamat@mandovi.example,Engineering,Software Engineer,rahul.desai@mandovi.example,2026-11-10,active
