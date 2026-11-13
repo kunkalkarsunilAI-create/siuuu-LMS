@@ -134,6 +134,12 @@
       <main id="main" tabindex="-1">${content}</main>`;
     $('#logout').onclick = async () => {
       try { await api('POST', '/api/logout'); } catch { /* signing out locally anyway */ }
+      // Also end the Clerk session, or the login page would sign the same person straight back in.
+      // Clerk may not be loaded yet (e.g. after a page reload), so load it first when it's in use.
+      try {
+        const cfg = state.config || (state.config = await api('GET', '/api/config'));
+        if (cfg.clerk) { const C = await loadClerk(cfg.clerk); if (C.isSignedIn) await C.signOut(); }
+      } catch { /* the app session is already ended */ }
       state.user = null; go('#/login');
     };
     return $('#main');
@@ -175,8 +181,48 @@
   window.addEventListener('hashchange', route);
 
   // ---------------- login ----------------
+  // Clerk's sign-in widget is loaded from Clerk's CDN only when the server says Clerk is set up.
+  let clerkReady = null;
+  function loadClerk(cfg) {
+    if (clerkReady) return clerkReady;
+    const add = (src, attrs = {}) => new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src; s.async = true; s.crossOrigin = 'anonymous';
+      Object.entries(attrs).forEach(([k, v]) => s.setAttribute(k, v));
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Could not load the sign-in service. Check your connection, or turn off any ad blocker for this site.'));
+      document.head.appendChild(s);
+    });
+    const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('The sign-in service is taking too long to load. Check your connection and reload the page.')), ms))]);
+    clerkReady = withTimeout((async () => {
+      const base = `https://${cfg.frontendApi}/npm`;
+      // Order matters: Clerk's UI bundle first, then clerk-js, then load() with the UI constructor.
+      await add(`${base}/@clerk/ui@1/dist/ui.browser.js`);
+      await add(`${base}/@clerk/clerk-js@6/dist/clerk.browser.js`, { 'data-clerk-publishable-key': cfg.publishableKey });
+      await window.Clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor } });
+      return window.Clerk;
+    })(), 20000);
+    clerkReady.catch(() => { clerkReady = null; });
+    return clerkReady;
+  }
+  const CLERK_APPEARANCE = {
+    variables: { colorPrimary: '#13574f', colorText: '#1b2422', colorTextSecondary: '#50605c', colorDanger: '#a4231c', borderRadius: '4px', fontFamily: 'inherit', fontSize: '15px' },
+    elements: { card: { boxShadow: 'none', border: '1px solid #d5dcd9' }, rootBox: { width: '100%' }, cardBox: { width: '100%', boxShadow: 'none' } },
+  };
+  const ROLE_LABEL = { student: 'a student', faculty: 'a teacher', admin: 'the exam office' };
+
   async function viewLogin() {
     if (state.user) { go('#/'); return; }
+    let cfg = { demoMode: false, passwordLogin: true, clerk: null };
+    try { cfg = state.config = await api('GET', '/api/config'); } catch { /* fall back to password sign-in */ }
+    const passwordForm = `
+      <form id="login-form" novalidate>
+        <div class="field"><label for="email">College email</label>
+          <input id="email" type="email" autocomplete="username" required></div>
+        <div class="field"><label for="password">Password <span class="hint">Students: your roll number, until you change it.</span></label>
+          <input id="password" type="password" autocomplete="current-password" required></div>
+        <button class="btn ${cfg.clerk ? 'btn-quiet' : ''}" type="submit" style="width:100%">Sign in with password</button>
+      </form>`;
     $app.innerHTML = `
       <div class="login">
         <section class="login-side">
@@ -193,43 +239,88 @@
         </section>
         <section class="login-form">
           <h2>Sign in</h2>
-          <form id="login-form" novalidate>
-            <div id="login-error"></div>
-            <div class="field"><label for="email">College email</label>
-              <input id="email" type="email" autocomplete="username" required></div>
-            <div class="field"><label for="password">Password <span class="hint">Students: your roll number, until you change it.</span></label>
-              <input id="password" type="password" autocomplete="current-password" required></div>
-            <button class="btn" type="submit" style="width:100%">Sign in</button>
-          </form>
-          <div id="demo-note"></div>
-          <div class="demo-accounts">
+          <div id="login-error"></div>
+          ${cfg.clerkError ? notice('warn', `<p><strong>Account sign-in isn't set up correctly:</strong> ${esc(cfg.clerkError)}</p>`) : ''}
+          ${cfg.clerk ? `<p class="muted small">Use your college email. Students, teachers and the exam office all sign in here.</p>
+            <div id="clerk-box" class="clerk-box">${loading('Loading sign-in…')}</div>` : ''}
+          ${cfg.passwordLogin ? (cfg.clerk
+            ? `<details class="pw-details"><summary>Sign in with a password instead</summary><div style="margin-top:12px">${passwordForm}</div></details>`
+            : passwordForm) : ''}
+          ${cfg.demoMode ? notice('info', '<p><strong>This is a demo site.</strong> The demo accounts and sample courses are always here, but anything you add — imported students, exam answers, marks — may reset after a few minutes without use.</p>') : ''}
+          ${cfg.passwordLogin && cfg.demoMode || (cfg.passwordLogin && !cfg.clerk) ? `<div class="demo-accounts">
             <p class="muted">Demo accounts — select one to sign in:</p>
             <button type="button" data-e="admin@dempo.edu" data-p="admin123"><strong>Exam office</strong> · imports the roster</button>
             <button type="button" data-e="priya.naik@dempo.edu" data-p="faculty123"><strong>Dr. Priya Naik</strong> · teaches CS201, CS202</button>
             <button type="button" data-e="aisha.dsouza@dempo.edu" data-p="23CS001"><strong>Aisha D'Souza</strong> · student, 23CS001</button>
-          </div>
+          </div>` : ''}
         </section>
       </div>`;
-    api('GET', '/api/config').then(c => {
-      if (c.demoMode && $('#demo-note')) $('#demo-note').innerHTML = notice('info', '<p><strong>This is a demo site.</strong> The demo accounts and sample courses are always here, but anything you add — imported students, exam answers, marks — may reset after a few minutes without use.</p>');
-    }).catch(() => { /* not important */ });
+
+    // ---- password sign-in ----
     const form = $('#login-form');
-    const submit = async () => {
-      const email = $('#email').value.trim(), password = $('#password').value;
+    const submit = async (email, password, btn) => {
       if (!email || !password) { $('#login-error').innerHTML = notice('bad', '<p>Enter your college email and password.</p>'); return; }
-      const btn = $('button[type=submit]', form);
+      const label = btn.innerHTML;
       btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Signing in…';
       try {
         state.user = (await api('POST', '/api/login', { email, password })).user;
         go('#/');
       } catch (e) {
         $('#login-error').innerHTML = errorBlock(e);
-        btn.disabled = false; btn.textContent = 'Sign in';
+        btn.disabled = false; btn.innerHTML = label;
       }
     };
-    form.onsubmit = e => { e.preventDefault(); submit(); };
-    $$('.demo-accounts button').forEach(b => b.onclick = () => { $('#email').value = b.dataset.e; $('#password').value = b.dataset.p; submit(); });
-    $('#email').focus();
+    if (form) form.onsubmit = e => { e.preventDefault(); submit($('#email').value.trim(), $('#password').value, $('button[type=submit]', form)); };
+    $$('.demo-accounts button').forEach(b => b.onclick = () => submit(b.dataset.e, b.dataset.p, b));
+    if (!cfg.clerk) { $('#email')?.focus(); return; }
+
+    // ---- Clerk sign-in ----
+    const box = $('#clerk-box');
+    let Clerk, exchanging = false;
+    async function exchange(demoRole) {
+      if (exchanging || !Clerk?.session) return;
+      exchanging = true;
+      box.innerHTML = loading('Signing you in…');
+      try {
+        const token = await Clerk.session.getToken();
+        const r = await api('POST', '/api/auth/clerk', { token, demoRole });
+        state.user = r.user;
+        go('#/');
+        if (r.asDemo) setTimeout(() => toast(`Exploring as ${r.user.name} (demo). You're signed in as ${r.clerkEmail}.`), 300);
+      } catch (e) {
+        exchanging = false;
+        if (e instanceof ApiError && e.data?.code === 'not_on_roster') return showNotOnRoster(e);
+        box.innerHTML = errorBlock(e) + '<button type="button" class="btn btn-quiet" id="clerk-retry">Try again</button> <button type="button" class="link-btn" id="clerk-switch">Use a different account</button>';
+        $('#clerk-retry').onclick = () => exchange(demoRole);
+        $('#clerk-switch').onclick = switchAccount;
+      }
+    }
+    function showNotOnRoster(e) {
+      const roles = e.data.demoRoles || [];
+      box.innerHTML = notice('warn', `<p>${esc(e.message)}</p>`) +
+        (roles.length ? `<p class="small muted" style="margin-bottom:8px">On this demo site you can look around as:</p>
+          <div class="row" style="margin-bottom:12px">${roles.map(r => `<button type="button" class="btn btn-small ${r === 'student' ? '' : 'btn-quiet'}" data-role="${r}">${esc(ROLE_LABEL[r][0].toUpperCase() + ROLE_LABEL[r].slice(1))}</button>`).join('')}</div>` : '') +
+        '<button type="button" class="link-btn" id="clerk-switch">Sign in with a different account</button>';
+      $$('[data-role]', box).forEach(b => b.onclick = () => exchange(b.dataset.role));
+      $('#clerk-switch').onclick = switchAccount;
+    }
+    async function switchAccount() {
+      box.innerHTML = loading('Signing out…');
+      try { await Clerk.signOut(); } catch { /* show the sign-in form anyway */ }
+      mount();
+    }
+    function mount() {
+      box.innerHTML = '<div id="clerk-signin"></div>';
+      Clerk.mountSignIn($('#clerk-signin'), { routing: 'virtual', appearance: CLERK_APPEARANCE });
+    }
+    try {
+      Clerk = await loadClerk(cfg.clerk);
+      if (!box.isConnected) return; // the user navigated away while Clerk loaded
+      Clerk.addListener(({ session }) => { if (session && box.isConnected && location.hash.startsWith('#/login')) exchange(); });
+      if (Clerk.isSignedIn) exchange(); else mount();
+    } catch (e) {
+      box.innerHTML = notice('bad', `<p>${esc(e.message)}</p>`) + (cfg.passwordLogin ? '<p class="small muted">You can still sign in with a password below.</p>' : '<button type="button" class="btn btn-quiet" onclick="location.reload()">Reload the page</button>');
+    }
   }
 
   // ---------------- home ----------------

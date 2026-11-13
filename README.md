@@ -33,7 +33,7 @@ The login page also has one-click buttons for these.
 |---|---|
 | `npm start` | Start the server on port 3000 (`PORT=4000 npm start` to change it) |
 | `npm run dev` | Start and restart automatically when files change |
-| `npm test` | Run the 25 automated tests (in-memory database, about 2 seconds) |
+| `npm test` | Run the 33 automated tests (in-memory database, about 2 seconds) |
 | `npm run reset` | Delete the database; the next start re-creates the demo data |
 | `npm run sample` | Regenerate the sample CSV files in `public/samples/` |
 
@@ -48,6 +48,30 @@ Vercel detects `server.js` and runs it with no configuration file.
 3. Click **Deploy**.
 
 **What "demo mode" means:** Vercel has no permanent disk, so the database lives in `/tmp` and is recreated with the demo data whenever Vercel starts a fresh copy of the app (after a few minutes idle, on each redeploy, or under load). The demo accounts and sample courses are always there; anything you add may disappear. The login page says so. For real use with saved data, run it on a normal server (Render, Railway, a college machine) where `data/dempo.db` persists, or move the database to hosted Postgres.
+
+## Sign-in with Clerk
+
+[Clerk](https://clerk.com) handles sign-in (email codes, Google, and so on). **Dempo Learn still decides the role**: after Clerk proves who you are, the server matches your verified email against the users table. Students come from the roster import, teachers from the seed data, and the exam office from `ADMIN_EMAILS`.
+
+Set these environment variables (in Vercel: Project → Settings → Environment Variables, then redeploy):
+
+| Variable | Where to find it | Secret? |
+|---|---|---|
+| `CLERK_PUBLISHABLE_KEY` | Clerk Dashboard → API keys (`pk_test_…`) | No |
+| `CLERK_SECRET_KEY` | Clerk Dashboard → API keys (`sk_test_…`) | **Yes, never commit it or paste it anywhere else** |
+| `ADMIN_EMAILS` | Comma-separated emails that become exam-office accounts on first sign-in | No |
+| `CLERK_AUTHORIZED_PARTIES` | Optional. Your site URL, e.g. `https://siuuu-lms.vercel.app`; rejects tokens made on other sites | No |
+| `CLERK_JWT_KEY` | Optional. Clerk's PEM public key, to verify without fetching Clerk's key list | No |
+
+How it behaves:
+
+- **Email on the roster:** signed in with that account's role.
+- **Email not on the roster:** told so plainly. On a demo site they can instead look around as the demo student, teacher or exam office.
+- **Unverified email in Clerk:** refused until verified.
+- **Password sign-in:** off once Clerk is set up, except on a demo site (`DEMO_MODE`), or if you set `ALLOW_PASSWORD_LOGIN=1`. If the Clerk keys are wrong, the site keeps password sign-in on and the login page says what's wrong, so nobody is locked out.
+- **Sign out:** ends both the Dempo Learn session and the Clerk session.
+
+Under the hood (`src/clerk.js`, no dependencies): the browser sends Clerk's session token to `POST /api/auth/clerk`. The server checks its RS256 signature against Clerk's public keys, its expiry and its issuer, then asks Clerk's Backend API for the verified email. Tests in `test/clerk.test.js` use a fake Clerk with real keys: forged, expired, wrong-app and wrong-site tokens are all rejected.
 
 ## A five-minute demo
 
@@ -111,6 +135,7 @@ server.js            entry point: checks Node version, seeds demo data, starts H
 src/app.js           HTTP routing and every API endpoint, with permission checks
 src/db.js            SQLite schema (node:sqlite)
 src/auth.js          scrypt password hashing, signed-cookie sessions (HttpOnly)
+src/clerk.js         Clerk sign-in: token verification + Backend API lookup
 src/roster.js        Feature 1: CSV validation + import
 src/exams.js         Feature 2: timer, saves, finalising, auto-marking
 src/grades.js        Feature 3: weighted totals and grades

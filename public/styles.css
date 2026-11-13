@@ -310,3 +310,9 @@ tr.row-error td { background: #fff8f7; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ---------- Clerk sign-in ---------- */
+.clerk-box { min-height: 120px; margin-bottom: var(--space-5); }
+.clerk-box .cl-rootBox, .clerk-box .cl-cardBox { width: 100%; max-width: 100%; }
+.pw-details { margin-bottom: var(--space-5); }
+.pw-details summary { cursor: pointer; color: var(--backwater-700); font-weight: 600; }

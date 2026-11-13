@@ -11,6 +11,8 @@ function hashPassword(password) {
 
 // Marker stored for imported students who have never signed in: their password is their roll number.
 const INITIAL_ROLL_NO = 'initial$roll_no';
+// Marker for accounts created through Clerk sign-in: they have no password here.
+const CLERK_ONLY = 'clerk$only';
 
 // Checks a password for a user row. Upgrades the first-login marker to a real hash on success.
 function checkLogin(db, user, password) {
@@ -70,4 +72,4 @@ function userFromToken(db, token, now = Date.now()) {
 // server-side; they expire after SESSION_TTL_MS.
 function destroySession() {}
 
-module.exports = { INITIAL_ROLL_NO, checkLogin, hashPassword, verifyPassword,createSession, userFromToken, destroySession };
+module.exports = { INITIAL_ROLL_NO, CLERK_ONLY,checkLogin, hashPassword, verifyPassword,createSession, userFromToken, destroySession };

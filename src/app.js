@@ -8,6 +8,7 @@ const roster = require('./roster');
 const exams = require('./exams');
 const grades = require('./grades');
 const { toCsv } = require('./csv');
+const { ClerkError } = require('./clerk');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MIME = {
@@ -22,7 +23,16 @@ class HttpError extends Error {
 }
 const fail = (status, message, extra) => { throw new HttpError(status, message, extra); };
 
-function createApp({ dbPath = path.join(__dirname, '..', 'data', 'dempo.db'), now = () => Date.now(), demoMode = false } = {}) {
+function createApp({
+  dbPath = path.join(__dirname, '..', 'data', 'dempo.db'), now = () => Date.now(), demoMode = false,
+  clerk = null,            // from src/clerk.js, or null for password sign-in only
+  clerkError = null,       // set when Clerk keys are present but invalid; shown on the login page
+  adminEmails = [],        // emails that become exam-office accounts on first Clerk sign-in
+  allowPasswordLogin,      // default: on when Clerk isn't set up, or on a demo site
+} = {}) {
+  // Password sign-in stays on if Clerk is misconfigured, so nobody is locked out.
+  const passwordLogin = allowPasswordLogin ?? (!clerk || demoMode);
+  adminEmails = adminEmails.map(e => String(e).trim().toLowerCase()).filter(Boolean);
   const db = openDb(dbPath);
   const routes = [];
   const route = (method, pattern, ...handlers) => {
@@ -104,7 +114,11 @@ function createApp({ dbPath = path.join(__dirname, '..', 'data', 'dempo.db'), no
   }
 
   // ---------- auth ----------
+  const publicUser = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, roll_no: u.roll_no });
+  const DEMO_PERSONAS = { student: 'aisha.dsouza@dempo.edu', faculty: 'priya.naik@dempo.edu', admin: 'admin@dempo.edu' };
+
   route('POST', '/api/login', ctx => {
+    if (!passwordLogin) fail(403, 'Sign in with your college account using the sign-in box.');
     const { email, password } = ctx.body || {};
     const u = db.prepare('SELECT * FROM users WHERE email = ?').get(String(email || '').trim().toLowerCase());
     if (!u || !auth.checkLogin(db, u, password || '')) {
@@ -117,7 +131,48 @@ function createApp({ dbPath = path.join(__dirname, '..', 'data', 'dempo.db'), no
   route('POST', '/api/logout', ctx => { auth.destroySession(db, ctx.token); ctx.setCookie(''); return { ok: true }; });
   route('GET', '/api/me', signedIn, ctx => ({ user: ctx.user, serverNow: now() }));
   route('GET', '/api/time', () => ({ serverNow: now() }));
-  route('GET', '/api/config', () => ({ demoMode }));
+  route('GET', '/api/config', () => ({
+    demoMode,
+    passwordLogin,
+    clerk: clerk ? { publishableKey: clerk.publishableKey, frontendApi: clerk.frontendApi } : null,
+    clerkError,
+  }));
+
+  // Exchange a Clerk session token for a Dempo Learn session.
+  route('POST', '/api/auth/clerk', async ctx => {
+    if (!clerk) fail(404, 'Clerk sign-in is not set up on this server.');
+    let who;
+    try {
+      const claims = await clerk.verifyToken(ctx.body?.token);
+      who = await clerk.getUser(claims.sub);
+    } catch (e) {
+      if (e instanceof ClerkError) fail(e.status, e.message, { code: e.code });
+      throw e;
+    }
+    if (!who.email) fail(403, 'Your Clerk account has no email address. Add one, then sign in again.', { code: 'no_email' });
+    if (!who.verified) fail(403, `Verify ${who.email} with Clerk first, then sign in again.`, { code: 'unverified' });
+
+    let u = db.prepare('SELECT * FROM users WHERE email = ?').get(who.email);
+    if (!u && adminEmails.includes(who.email)) {
+      // Bootstrap: emails listed in ADMIN_EMAILS become exam-office accounts on first sign-in.
+      db.prepare(`INSERT INTO users (email, name, role, password_hash) VALUES (?, ?, 'admin', ?)`)
+        .run(who.email, who.name || who.email.split('@')[0], auth.CLERK_ONLY);
+      u = db.prepare('SELECT * FROM users WHERE email = ?').get(who.email);
+    }
+    if (!u) {
+      const role = ctx.body?.demoRole;
+      if (demoMode && DEMO_PERSONAS[role]) {
+        // Demo site only: a Clerk user who isn't on the roster may look around as a demo account.
+        u = db.prepare('SELECT * FROM users WHERE email = ?').get(DEMO_PERSONAS[role]);
+        if (!u) fail(500, 'The demo accounts are missing. Restart the app to re-create them.');
+      } else {
+        fail(403, `You're signed in as ${who.email}, but that email isn't on the college roster. Ask the exam office to add you, or sign in with your college email.`,
+          { code: 'not_on_roster', email: who.email, demoRoles: demoMode ? Object.keys(DEMO_PERSONAS) : [] });
+      }
+    }
+    ctx.setCookie(auth.createSession(db, u.id, now()));
+    return { user: publicUser(u), clerkEmail: who.email, asDemo: u.email !== who.email };
+  });
 
   // ---------- courses ----------
   route('GET', '/api/courses', signedIn, ctx => {
