@@ -22,7 +22,7 @@ class HttpError extends Error {
 }
 const fail = (status, message, extra) => { throw new HttpError(status, message, extra); };
 
-function createApp({ dbPath = path.join(__dirname, '..', 'data', 'dempo.db'), now = () => Date.now() } = {}) {
+function createApp({ dbPath = path.join(__dirname, '..', 'data', 'dempo.db'), now = () => Date.now(), demoMode = false } = {}) {
   const db = openDb(dbPath);
   const routes = [];
   const route = (method, pattern, ...handlers) => {
@@ -117,6 +117,7 @@ function createApp({ dbPath = path.join(__dirname, '..', 'data', 'dempo.db'), no
   route('POST', '/api/logout', ctx => { auth.destroySession(db, ctx.token); ctx.setCookie(''); return { ok: true }; });
   route('GET', '/api/me', signedIn, ctx => ({ user: ctx.user, serverNow: now() }));
   route('GET', '/api/time', () => ({ serverNow: now() }));
+  route('GET', '/api/config', () => ({ demoMode }));
 
   // ---------- courses ----------
   route('GET', '/api/courses', signedIn, ctx => {

@@ -279,3 +279,21 @@ test('security: state-changing requests must be JSON (CSRF), static path travers
   const t = await fetch(base + '/..%2F..%2Fpackage.json');
   assert.notEqual(t.status, 200);
 });
+
+test('sessions: a sign-in made on one copy of the app works on another (as on Vercel)', async () => {
+  process.env.SESSION_SECRET = 'test-secret-for-two-instances';
+  try {
+    const auth = require('../src/auth');
+    const a = createApp({ dbPath: ':memory:' }); seed(a.db);
+    const b = createApp({ dbPath: ':memory:' }); seed(b.db);
+    const uid = a.db.prepare("SELECT id FROM users WHERE email = 'aisha.dsouza@dempo.edu'").get().id;
+    const token = auth.createSession(a.db, uid);
+    assert.equal(auth.userFromToken(b.db, token).email, 'aisha.dsouza@dempo.edu');
+    // Tampering or a different person with the same id is rejected.
+    assert.equal(auth.userFromToken(b.db, token.slice(0, -2) + 'xx'), null);
+    b.db.prepare("UPDATE users SET email = 'someone.else@dempo.edu' WHERE id = ?").run(uid);
+    assert.equal(auth.userFromToken(b.db, token), null);
+    // Expired.
+    assert.equal(auth.userFromToken(a.db, token, Date.now() + 13 * 3600 * 1000), null);
+  } finally { delete process.env.SESSION_SECRET; }
+});

@@ -30,25 +30,44 @@ function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(expected, actual);
 }
 
+// Sessions are signed cookies, not database rows, so a sign-in stays valid when a host
+// (e.g. Vercel) sends the next request to a different copy of the app.
+//   token = base64url(userId.expiresAt.email) . HMAC-SHA256(secret, payload)
+// The secret comes from the SESSION_SECRET environment variable. Without it, a random
+// secret is generated once and stored in the database (fine for local use).
+function sessionSecret(db) {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'session_secret'").get();
+  if (row) return row.value;
+  const secret = crypto.randomBytes(32).toString('hex');
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('session_secret', ?)").run(secret);
+  return db.prepare("SELECT value FROM settings WHERE key = 'session_secret'").get().value;
+}
+const sign = (secret, payload) => crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+
 function createSession(db, userId, now = Date.now()) {
-  const token = crypto.randomBytes(32).toString('hex');
-  db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now);
-  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)')
-    .run(token, userId, now + SESSION_TTL_MS);
-  return token;
+  const u = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
+  const payload = Buffer.from(`${userId}.${now + SESSION_TTL_MS}.${u.email}`).toString('base64url');
+  return `${payload}.${sign(sessionSecret(db), payload)}`;
 }
 
 function userFromToken(db, token, now = Date.now()) {
-  if (!token) return null;
-  const row = db.prepare(`
-    SELECT u.id, u.email, u.name, u.role, u.roll_no, u.department
-    FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.token = ? AND s.expires_at > ?`).get(token, now);
-  return row ? { ...row } : null;
+  if (!token || typeof token !== 'string') return null;
+  const [payload, sig] = token.split('.');
+  if (!payload || !sig) return null;
+  const expected = Buffer.from(sign(sessionSecret(db), payload));
+  const given = Buffer.from(sig);
+  if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) return null;
+  const [id, expires, ...emailParts] = Buffer.from(payload, 'base64url').toString().split('.');
+  if (!(Number(expires) > now)) return null;
+  const row = db.prepare('SELECT id, email, name, role, roll_no, department FROM users WHERE id = ?').get(Number(id));
+  // The email check stops a token from one copy of the app matching a different person
+  // who happens to have the same id in another copy's database.
+  return row && row.email === emailParts.join('.') ? { ...row } : null;
 }
 
-function destroySession(db, token) {
-  if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
-}
+// Signing out clears the cookie (done by the caller). Signed tokens can't be revoked
+// server-side; they expire after SESSION_TTL_MS.
+function destroySession() {}
 
 module.exports = { INITIAL_ROLL_NO, checkLogin, hashPassword, verifyPassword,createSession, userFromToken, destroySession };

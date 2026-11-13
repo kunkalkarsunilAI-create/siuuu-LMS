@@ -33,11 +33,21 @@ The login page also has one-click buttons for these.
 |---|---|
 | `npm start` | Start the server on port 3000 (`PORT=4000 npm start` to change it) |
 | `npm run dev` | Start and restart automatically when files change |
-| `npm test` | Run the 24 automated tests (in-memory database, about 2 seconds) |
+| `npm test` | Run the 25 automated tests (in-memory database, about 2 seconds) |
 | `npm run reset` | Delete the database; the next start re-creates the demo data |
 | `npm run sample` | Regenerate the sample CSV files in `public/samples/` |
 
 **If it fails to start:** `Dempo Learn needs Node.js 22.13 or newer` means exactly that. Check with `node -v`. The app uses the built-in `node:sqlite` module, which older versions don't have. A warning about `ExperimentalWarning: SQLite` is harmless; `npm start` hides it.
+
+## Deploy to Vercel (demo mode)
+
+Vercel detects `server.js` and runs it with no configuration file.
+
+1. On [vercel.com](https://vercel.com) → **Add New… → Project** → import this GitHub repo. Leave every build setting at its default.
+2. Under **Environment Variables**, add `SESSION_SECRET` with a long random value (any 40+ random characters). This keeps people signed in when Vercel moves them between copies of the app. **Never commit it to the repo.**
+3. Click **Deploy**.
+
+**What "demo mode" means:** Vercel has no permanent disk, so the database lives in `/tmp` and is recreated with the demo data whenever Vercel starts a fresh copy of the app (after a few minutes idle, on each redeploy, or under load). The demo accounts and sample courses are always there; anything you add may disappear. The login page says so. For real use with saved data, run it on a normal server (Render, Railway, a college machine) where `data/dempo.db` persists, or move the database to hosted Postgres.
 
 ## A five-minute demo
 
@@ -100,7 +110,7 @@ Checked on the server for every request, not just hidden in the interface. Stude
 server.js            entry point: checks Node version, seeds demo data, starts HTTP
 src/app.js           HTTP routing and every API endpoint, with permission checks
 src/db.js            SQLite schema (node:sqlite)
-src/auth.js          scrypt password hashing, sessions (HttpOnly cookie)
+src/auth.js          scrypt password hashing, signed-cookie sessions (HttpOnly)
 src/roster.js        Feature 1: CSV validation + import
 src/exams.js         Feature 2: timer, saves, finalising, auto-marking
 src/grades.js        Feature 3: weighted totals and grades

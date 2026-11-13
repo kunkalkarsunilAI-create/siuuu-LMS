@@ -201,6 +201,7 @@
               <input id="password" type="password" autocomplete="current-password" required></div>
             <button class="btn" type="submit" style="width:100%">Sign in</button>
           </form>
+          <div id="demo-note"></div>
           <div class="demo-accounts">
             <p class="muted">Demo accounts — select one to sign in:</p>
             <button type="button" data-e="admin@dempo.edu" data-p="admin123"><strong>Exam office</strong> · imports the roster</button>
@@ -209,6 +210,9 @@
           </div>
         </section>
       </div>`;
+    api('GET', '/api/config').then(c => {
+      if (c.demoMode && $('#demo-note')) $('#demo-note').innerHTML = notice('info', '<p><strong>This is a demo site.</strong> The demo accounts and sample courses are always here, but anything you add — imported students, exam answers, marks — may reset after a few minutes without use.</p>');
+    }).catch(() => { /* not important */ });
     const form = $('#login-form');
     const submit = async () => {
       const email = $('#email').value.trim(), password = $('#password').value;
